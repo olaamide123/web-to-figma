@@ -49,12 +49,12 @@ plugin has no backend by design — see the setup link above).
 So that you can test without deploying anything, here is a working instance:
 
     Service URL:   https://web-to-figma-capture.vercel.app
-    Access token:  <paste your CAPTURE_TOKEN here>
+    Access token:  <paste it here in Figma - never commit it to this repo>
 
 Open the plugin, put those two values into "Capture settings", enter any public
 URL, and press Import to Figma.
 
 Suggested test URL: https://getbootstrap.com/docs/5.3/getting-started/introduction/
 
-Please note this instance is for review only and may be taken down afterwards;
-published users deploy their own.
+This instance is provided so the plugin can be reviewed without deploying
+anything. Published users deploy their own; the plugin has no shared backend.

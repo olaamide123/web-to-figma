@@ -26,14 +26,17 @@ Paste a URL and get the page back as real Figma layers — not a screenshot.
 - **Fidelity check.** After an import, score the result against the live page
   and see the worst-matching bands.
 
-### One-time setup
+### No setup
 
-Figma's sandbox has no browser, so rendering happens in a small capture service
-that **you deploy and own** — one click on Vercel's free tier. The plugin has no
-backend: your captures never touch a server belonging to anyone else, and they
-are deleted from your own storage after 7 days.
+Open it, paste a URL, press Import. There is no account, no API key and nothing
+to install. Rendering happens on a shared capture service that the plugin
+registers itself with on first run.
 
-Setup instructions: https://github.com/olaamide123/web-to-figma
+Fair use is 60 captures per day. If you need more, or you would rather captured
+pages stayed on your own infrastructure, you can point the plugin at your own
+capture service under Advanced — it is open source and deploys in one click.
+
+Source and self-hosting: https://github.com/olaamide123/web-to-figma
 
 ## Images — which file goes where
 
@@ -60,20 +63,22 @@ website, import, html, css, web, screenshot, url, developer, handoff, prototype
 ## Category
 Import / Developer tools
 
-## Notes for reviewers  ← paste this into the review-notes field
+## Notes for reviewers  <- paste this into the review-notes field
 
-This plugin needs a capture service, which each user deploys themselves (the
-plugin has no backend by design — see the setup link above).
+No credentials or setup are needed. The plugin registers itself anonymously
+with our capture service the first time it runs, so it works immediately on a
+clean install.
 
-So that you can test without deploying anything, here is a working instance:
+To test:
+1. Open the plugin.
+2. Paste a public URL. Suggested:
+   https://getbootstrap.com/docs/5.3/getting-started/introduction/
+3. Leave Desktop ticked and press "Import to Figma".
 
-    Service URL:   https://web-to-figma-capture.vercel.app
-    Access token:  <paste it here in Figma - never commit it to this repo>
+You should get the page back as editable Figma layers in roughly 20-40 seconds.
 
-Open the plugin, put those two values into "Capture settings", enter any public
-URL, and press Import to Figma.
-
-Suggested test URL: https://getbootstrap.com/docs/5.3/getting-started/introduction/
-
-This instance is provided so the plugin can be reviewed without deploying
-anything. Published users deploy their own; the plugin has no shared backend.
+On privacy: the page being captured is fetched by our service and the result is
+stored there for 7 days, then deleted automatically by a scheduled job. No
+personal data is collected and the plugin has no login. The "Advanced" section
+lets anyone run the capture service themselves instead; the source is linked
+above.

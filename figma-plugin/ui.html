@@ -97,6 +97,13 @@
   }
   .settings input { margin-top: 7px; }
   .settings .eyebrow { margin-bottom: 8px; }
+  .adv { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .adv summary { cursor: pointer; color: var(--text-dim); font-size: 10px; list-style: none; }
+  .adv summary::-webkit-details-marker { display: none; }
+  .adv summary::before { content: "\25B8  "; }
+  .adv[open] summary::before { content: "\25BE  "; }
+  .advnote { margin: 8px 0 2px; color: var(--text-dim); font-size: 10px; line-height: 1.45; }
+  .quota { margin-top: 10px; color: var(--text-dim); font-size: 10px; }
 
   /* The import genuinely is a sequence, so the steps are numbered. */
   #stages { margin: 14px 0 0; padding: 0; list-style: none; border-left: 1px solid var(--border); }
@@ -171,27 +178,26 @@
   </div>
 </div>
 
-<div id="setup" class="note hidden">
-  <b>One-time setup</b><br>
-  This plugin renders pages in a real browser, which Figma cannot do on its own,
-  so it needs a small capture service that <b>you</b> deploy and own. Nothing is
-  sent anywhere else.<br><br>
-  Deploy it in about two minutes, then paste its URL and token below.
-  Instructions: <span class="mono">github.com/olaamide123/web-to-figma</span>
-</div>
+<div id="setup" class="note hidden"></div>
 
 <button id="go">Import to Figma</button>
 
 <section class="settings">
   <p class="eyebrow">Capture settings</p>
-  <input id="service" type="text" placeholder="Capture service URL, e.g. https://your-service.vercel.app" spellcheck="false" />
-  <input id="token" type="text" placeholder="Access token — your service's CAPTURE_TOKEN" spellcheck="false" style="margin-top:6px" />
-  <input id="root" type="text" placeholder="Import only this selector, e.g. #section-3 (optional)" spellcheck="false" style="margin-top:6px" />
+  <input id="root" type="text" placeholder="Import only this selector, e.g. #section-3 (optional)" spellcheck="false" style="margin-top:0" />
   <input id="dismiss" type="text" placeholder="Cookie banner selector (optional)" spellcheck="false" style="margin-top:6px" />
   <input id="stateSel" type="text" placeholder="Tab/state selectors, comma separated (optional)" spellcheck="false" style="margin-top:6px" />
   <label class="chk"><input type="checkbox" id="wantAutoLayout" checked /> Use Auto Layout where the page uses flexbox <span class="muted">(reverts if it shifts anything)</span></label>
   <label class="chk"><input type="checkbox" id="wantStates" checked /> Capture tab &amp; accordion states <span class="muted">(slower on big batches)</span></label>
   <label class="chk sub"><input type="checkbox" id="wantComponents" checked /> Build them as component sets <span class="muted">(off = pages only)</span></label>
+
+  <details class="adv">
+    <summary>Advanced &middot; run your own capture service</summary>
+    <p class="advnote">Leave these blank to use the shared service. Running your own removes
+      the daily limit and keeps every captured page on infrastructure you control.</p>
+    <input id="service" type="text" placeholder="Capture service URL" spellcheck="false" />
+    <input id="token" type="text" placeholder="Access token, if your service sets one" spellcheck="false" style="margin-top:6px" />
+  </details>
 </section>
 
 <ul id="stages" class="hidden"></ul>
@@ -292,15 +298,39 @@
     } catch (e) {}
   }
 
-  // Until a service is configured the plugin cannot do anything, so say that up
-  // front instead of letting the first import fail with a network error.
+  // The service everyone gets unless they point at their own under Advanced.
+  const DEFAULT_SERVICE = 'https://web-to-figma-capture.vercel.app';
+  const serviceUrl = () => (serviceInput.value.trim() || DEFAULT_SERVICE).replace(/\/$/, '');
+  let installToken = null;
+
   function syncSetup() {
-    const configured = !!serviceInput.value.trim();
-    $('setup').classList.toggle('hidden', configured);
-    goBtn.disabled = !configured;
-    goBtn.textContent = configured ? 'Import to Figma' : 'Set a capture service first';
+    $('setup').classList.add('hidden');
+    goBtn.disabled = false;
+    goBtn.textContent = 'Import to Figma';
   }
   serviceInput.addEventListener('input', syncSetup);
+
+  /**
+   * Earn a credential rather than ship one. A distributed plugin bundle is
+   * readable, so the service mints a signed install token on first run and the
+   * plugin keeps it in clientStorage. Nothing secret is in this file.
+   */
+  async function ensureInstall(force) {
+    if (installToken && !force) return installToken;
+    if (!force) {
+      const held = await waitFor('install-token', () => send({ type: 'install-get' }));
+      if (held && held.token) { installToken = held.token; return installToken; }
+    }
+    const res = await fetch(`${serviceUrl()}/register`, { method: 'POST' });
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Too many new installs from this network today. Try again tomorrow.');
+      throw new Error(`Could not set up this install (${res.status}).`);
+    }
+    const body = await res.json();
+    installToken = body.token;
+    send({ type: 'install-set', token: installToken });
+    return installToken;
+  }
 
   document.querySelectorAll('.vp input').forEach((cb) => {
     const sync = () => { cb.closest('.vp').dataset.on = String(cb.checked); };
@@ -339,20 +369,25 @@
 
   // --- talking to the plugin main thread ------------------------------------
   const waiters = new Map();
-  function waitFor(type) {
+  function waitFor(type, kick) {
     return new Promise((resolve) => {
       const list = waiters.get(type) || [];
       list.push(resolve);
       waiters.set(type, list);
+      if (kick) kick();
     });
   }
   function send(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
 
-  /** A hosted service is token-gated; a local one ignores the header. */
+  /**
+   * An operator token if the user runs their own service, otherwise the
+   * anonymous install token this service issued us.
+   */
   function authHeaders(extra) {
     const h = Object.assign({}, extra || {});
     const t = tokenInput.value.trim();
     if (t) h['x-capture-token'] = t;
+    else if (installToken) h['x-w2f-install'] = installToken;
     return h;
   }
 
@@ -380,7 +415,7 @@
     notes = [];
 
     const urls = readUrls();
-    const service = serviceInput.value.trim().replace(/\/$/, '');
+    const service = serviceUrl();
     const dismiss = dismissInput.value.trim();
     const rootSelector = rootInput.value.trim();
     // Tabs are found automatically via ARIA; this is the escape hatch for
@@ -410,6 +445,17 @@
     save();
     goBtn.disabled = true;
     goBtn.textContent = 'Importing…';
+
+    // Registers silently on first run; afterwards this is a clientStorage read.
+    if (!tokenInput.value.trim()) {
+      try {
+        await ensureInstall(false);
+      } catch (e) {
+        showError(String((e && e.message) || e));
+        syncSetup();
+        return;
+      }
+    }
 
     // One line per page/viewport pair. Three lines each would make a
     // forty-page batch unreadable.
@@ -481,6 +527,13 @@
                 ? 'The capture service timed out on this page. Try it with tab & accordion states turned off.'
                 : `Capture failed (${res.status})`);
             }
+            if (res.status === 401 && payload.code === 'REGISTER_REQUIRED' && !tokenInput.value.trim()) {
+              // Server re-keyed, or the stored token was never valid. Re-register
+              // once and let the outer loop retry this pair on the next pass.
+              await ensureInstall(true);
+              throw new Error('Install was re-registered — press Import again.');
+            }
+            if (res.status === 429) throw new Error(payload.error || 'Daily limit reached.');
             if (!res.ok) throw new Error(payload.error || `Capture failed (${res.status})`);
 
             // A hosted capture returns a URL rather than the document itself —
@@ -554,7 +607,7 @@
         // isn't up. Say that, rather than counting the casualties.
         const allNetwork = failures.every((f) => /Failed to fetch|NetworkError/i.test(f.error));
         throw new Error(allNetwork
-          ? `Can't reach the capture service at ${service}. Start it with "npm start" in capture-service.`
+          ? `Can't reach the capture service at ${service}. Check your connection, or set your own service under Advanced.`
           : `Nothing imported — all ${failures.length} attempts failed.`);
       }
 
@@ -605,7 +658,7 @@
       const m = String(err && err.message ? err.message : err);
       showError(
         /Failed to fetch|NetworkError/i.test(m)
-          ? `Can't reach the capture service at ${service}. Start it with "npm start" in capture-service.`
+          ? `Can't reach the capture service at ${service}. Check your connection, or set your own service under Advanced.`
           : m
       );
     } finally {
@@ -615,7 +668,7 @@
 
   // --- fidelity harness -----------------------------------------------------
   async function checkFidelity() {
-    const service = serviceInput.value.trim().replace(/\/$/, '');
+    const service = serviceUrl();
     fidelityBtn.disabled = true;
     fidelityBtn.textContent = 'Comparing…';
     fidelityOut.classList.remove('hidden');
@@ -668,7 +721,7 @@
   urlInput.addEventListener('input', refreshCount);
 
   findBtn.addEventListener('click', async () => {
-    const service = serviceInput.value.trim().replace(/\/$/, '');
+    const service = serviceUrl();
     const first = readUrls()[0];
     if (!first || !/^https?:\/\//i.test(first)) {
       showError('Put one URL on the first line, then press this to find the rest.');

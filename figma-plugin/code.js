@@ -782,6 +782,22 @@ let pendingSection = null;
 figma.ui.onmessage = async (msg) => {
   try {
     switch (msg.type) {
+      // The install token belongs in clientStorage, not the UI's localStorage:
+      // it survives a cleared iframe, is scoped to the user rather than the
+      // frame, and the UI has no access to it directly.
+      case 'install-get': {
+        let token = null;
+        try { token = await figma.clientStorage.getAsync('w2f.install'); } catch (e) {}
+        figma.ui.postMessage({ type: 'install-token', token: token || null });
+        break;
+      }
+
+      case 'install-set': {
+        try { await figma.clientStorage.setAsync('w2f.install', msg.token); } catch (e) {}
+        figma.ui.postMessage({ type: 'install-saved' });
+        break;
+      }
+
       case 'asset': {
         if (msg.kind === 'svg') assetSvg.set(msg.id, msg.svg);
         else assetBytes.set(msg.id, msg.bytes);

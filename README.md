@@ -24,32 +24,28 @@ Figma plugin  ◀──JSON + bytes──   { root, overlays, fonts, assets }
 
 ## Setup
 
-The plugin cannot render a web page on its own — Figma has no browser in the
-sandbox — so it talks to a small capture service. **You deploy and own that
-service.** Nothing is sent anywhere else, and there is no backend behind this
-plugin.
+**Using the plugin** — nothing to set up. Open it, paste a URL, press Import.
+On first run it quietly registers itself with the shared capture service and
+remembers that; there is no account, no key to paste and nothing to deploy.
 
-**1. Deploy the capture service**
+The shared service allows 60 captures per install per day. If you need more, or
+you would rather captured pages never touch someone else's infrastructure, run
+your own (below) and put its URL under **Advanced** in the plugin.
 
-Push this repo to GitHub, then:
+**Running your own capture service (optional)**
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/olaamide123/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20The%20plugin%20sends%20it%20to%20prove%20a%20request%20is%20yours.&stores=%5B%7B%22type%22%3A%22blob%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/olaamide123/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20Paste%20the%20same%20value%20into%20the%20plugin%20under%20Advanced.&stores=%5B%7B%22type%22%3A%22blob%22%7D%5D)
 
-It provisions a Blob store and asks for one environment variable:
+It provisions a Blob store and asks for one variable:
 
 | Variable | What to put |
 |---|---|
-| `CAPTURE_TOKEN` | Any random string. Generate one with `openssl rand -base64 24`. The plugin sends it so nobody else can use your service. |
+| `CAPTURE_TOKEN` | Any random string (`openssl rand -base64 24`). Paste the same value into the plugin under Advanced. Requests carrying it skip the daily limit entirely. |
 
-Captures run for 20–100 seconds at 2GB, so on Vercel's Hobby plan this is fine
-for personal use and will need a Pro plan if you hammer it.
+Captures run 20-100 seconds at 2GB, which is fine on Vercel's Hobby plan for
+personal use.
 
-**2. Point the plugin at it**
-
-Open the plugin. Under **Capture settings**, paste the deployment URL and the
-same `CAPTURE_TOKEN`. Both are remembered.
-
-**Running it locally instead**
+**Running it locally**
 
 ```bash
 cd capture-service
@@ -58,16 +54,37 @@ npm run setup        # downloads Chromium for Playwright
 npm start            # http://localhost:3000
 ```
 
-Node 18.17+, and leave the token blank — a local service does not ask for one.
-If `sharp` fails to build, the service still runs but skips WebP/AVIF images —
-which on a Next.js site is most of them, so it is worth fixing rather than
-working around.
+Node 18.17+. Put `http://localhost:3000` under Advanced and leave the token
+blank — a local service asks for nothing.
 
 **Developing the plugin**
 
-Figma → Plugins → Development → Import plugin from manifest → pick
+Figma -> Plugins -> Development -> Import plugin from manifest -> pick
 `figma-plugin/manifest.json`. No build step; it is plain JS. Changing
-`manifest.json` requires re-importing — Figma only reads it once.
+`manifest.json` requires re-importing, as Figma only reads it once.
+
+## How public access works
+
+A distributed plugin bundle is readable, so it ships no secret. Instead:
+
+1. On first run the plugin calls `POST /register` and gets back a token signed
+   with a key that never leaves the server.
+2. It stores that in `figma.clientStorage` and sends it as `x-w2f-install` on
+   every later request.
+3. The server verifies the signature, then meters that install: 60 captures a
+   day, counted in Blob under `meter/<date>/`.
+4. `/register` is itself capped per IP per day, so tokens cannot be minted
+   without bound.
+
+This is metering, not authentication — nothing proves the caller is really the
+plugin, and someone determined can register again. What it buys is a credential
+that can be re-keyed without shipping a new plugin version, a per-install
+ceiling on cost, and no extractable secret in the bundle. The hard limits on
+abuse are that per-IP cap, the private-network guard in `net-guard.js`, and
+Vercel's own spend controls.
+
+Set `CAPTURE_TOKEN` on a deployment and it behaves as a private service
+instead: that token grants unmetered access and registration is bypassed.
 
 ## Publishing to the Figma Community
 

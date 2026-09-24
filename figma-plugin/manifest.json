@@ -1,0 +1,19 @@
+{
+  "name": "Web to Figma",
+  "id": "web-to-figma-internal",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": [
+    "figma"
+  ],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://*.vercel.app",
+      "https://*.public.blob.vercel-storage.com",
+      "http://localhost:3000"
+    ],
+    "reasoning": "Talks to a capture service that the user deploys and owns, which renders the page and returns its serialised DOM, and downloads the images that service stores. No data is sent anywhere else; the plugin has no backend of its own."
+  }
+}

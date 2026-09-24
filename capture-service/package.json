@@ -1,0 +1,27 @@
+{
+  "name": "web-to-figma-capture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless-Chromium capture service that serialises a rendered page for the Web to Figma plugin.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "setup": "playwright install chromium"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
+    "@vercel/blob": "^2.8.0",
+    "express": "^4.19.2",
+    "pixelmatch": "^5.3.0",
+    "playwright-core": "^1.62.1",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

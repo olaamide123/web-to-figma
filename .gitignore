@@ -1,0 +1,6 @@
+node_modules/
+capture-service/runs/
+capture-service/.vercel/
+.env*
+*.log
+.DS_Store

@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    --bg: var(--figma-color-bg, #ffffff);
+    --bg-sunken: var(--figma-color-bg-secondary, #f5f5f5);
+    --text: var(--figma-color-text, #1a1a1a);
+    --text-dim: var(--figma-color-text-secondary, #7a7a7a);
+    --border: var(--figma-color-border, #e0e0e0);
+    --brand: var(--figma-color-bg-brand, #0d99ff);
+    --brand-text: var(--figma-color-text-onbrand, #ffffff);
+    --danger: var(--figma-color-text-danger, #d33);
+    --ok: var(--figma-color-text-success, #1e9e5a);
+    --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font: 11px/1.45 Inter, -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .eyebrow {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 6px;
+  }
+
+  .field { margin-bottom: 16px; }
+
+  input[type="text"] {
+    width: 100%;
+    padding: 8px 9px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+    font: 11px/1.4 var(--mono);
+  }
+  input[type="text"]:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 25%, transparent);
+  }
+
+  .viewports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .vp {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .vp[data-on="true"] { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, transparent); }
+  .vp input { margin: 0; accent-color: var(--brand); }
+  .vp b { font-weight: 550; }
+  .vp span { color: var(--text-dim); font-family: var(--mono); font-size: 10px; }
+
+  button {
+    width: 100%;
+    padding: 9px;
+    border: 0;
+    border-radius: 5px;
+    background: var(--brand);
+    color: var(--brand-text);
+    font: 600 11px/1 Inter, sans-serif;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  /* Always open: the service URL is required, so hiding it behind a disclosure
+     left a first-time user staring at a form that could not work. */
+  .settings {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .settings input { margin-top: 7px; }
+  .settings .eyebrow { margin-bottom: 8px; }
+
+  /* The import genuinely is a sequence, so the steps are numbered. */
+  #stages { margin: 14px 0 0; padding: 0; list-style: none; border-left: 1px solid var(--border); }
+  #stages li {
+    position: relative;
+    padding: 3px 0 3px 14px;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  #stages li::before {
+    content: "";
+    position: absolute;
+    left: -3px; top: 8px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  #stages li[data-state="active"] { color: var(--text); }
+  #stages li[data-state="active"]::before { background: var(--brand); }
+  #stages li[data-state="done"]::before { background: var(--ok); }
+
+  .note {
+    margin-top: 12px;
+    padding: 9px 10px;
+    border-radius: 4px;
+    background: var(--bg-sunken);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .note.error { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+  .note b { font-weight: 600; }
+  .note code { font-family: var(--mono); font-size: 9.5px; }
+  .hidden { display: none; }
+  textarea#url { width: 100%; resize: vertical; font-family: var(--mono); font-size: 10.5px; line-height: 1.5; }
+  .urlbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  button.small { width: auto; padding: 4px 8px; font-size: 10px; margin: 0; }
+  .muted { color: #888; font-family: var(--mono); font-size: 9.5px; }
+  .chk { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; }
+  .chk input { width: auto; margin: 0; }
+  /* Indented because it only has meaning while states are being captured. */
+  .chk.sub { margin-top: 6px; margin-left: 16px; }
+  .chk.sub[data-off="true"] { opacity: 0.45; }
+  #stages li[data-state="error"] { color: #c0392b; }
+
+  .score { font: 600 20px var(--mono); letter-spacing: -0.02em; }
+  .rows { margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 9.5px; }
+  .rows li { display: flex; justify-content: space-between; padding: 1px 0; }
+</style>
+</head>
+<body>
+
+<div class="field">
+  <p class="eyebrow">Website</p>
+  <textarea id="url" rows="3" placeholder="https://flock-site-beta.vercel.app&#10;One URL per line — each becomes its own frame" spellcheck="false"></textarea>
+  <div class="urlbar">
+    <button id="findPages" class="ghost small">Find pages on this site</button>
+    <span id="urlCount" class="muted"></span>
+  </div>
+</div>
+
+<div class="field">
+  <p class="eyebrow">Viewport</p>
+  <div class="viewports">
+    <label class="vp" data-on="true">
+      <input type="checkbox" id="vp-desktop" checked />
+      <b>Desktop</b><span>1440</span>
+    </label>
+    <label class="vp" data-on="false">
+      <input type="checkbox" id="vp-mobile" />
+      <b>Mobile</b><span>390</span>
+    </label>
+  </div>
+</div>
+
+<div id="setup" class="note hidden">
+  <b>One-time setup</b><br>
+  This plugin renders pages in a real browser, which Figma cannot do on its own,
+  so it needs a small capture service that <b>you</b> deploy and own. Nothing is
+  sent anywhere else.<br><br>
+  Deploy it in about two minutes, then paste its URL and token below.
+  Instructions: <span class="mono">github.com/&lt;you&gt;/web-to-figma</span>
+</div>
+
+<button id="go">Import to Figma</button>
+
+<section class="settings">
+  <p class="eyebrow">Capture settings</p>
+  <input id="service" type="text" placeholder="Capture service URL, e.g. https://your-service.vercel.app" spellcheck="false" />
+  <input id="token" type="text" placeholder="Access token — your service's CAPTURE_TOKEN" spellcheck="false" style="margin-top:6px" />
+  <input id="root" type="text" placeholder="Import only this selector, e.g. #section-3 (optional)" spellcheck="false" style="margin-top:6px" />
+  <input id="dismiss" type="text" placeholder="Cookie banner selector (optional)" spellcheck="false" style="margin-top:6px" />
+  <input id="stateSel" type="text" placeholder="Tab/state selectors, comma separated (optional)" spellcheck="false" style="margin-top:6px" />
+  <label class="chk"><input type="checkbox" id="wantAutoLayout" checked /> Use Auto Layout where the page uses flexbox <span class="muted">(reverts if it shifts anything)</span></label>
+  <label class="chk"><input type="checkbox" id="wantStates" checked /> Capture tab &amp; accordion states <span class="muted">(slower on big batches)</span></label>
+  <label class="chk sub"><input type="checkbox" id="wantComponents" checked /> Build them as component sets <span class="muted">(off = pages only)</span></label>
+</section>
+
+<ul id="stages" class="hidden"></ul>
+
+<div id="result" class="note hidden"></div>
+<div id="error" class="note error hidden"></div>
+
+<button id="fidelity" class="ghost hidden" style="margin-top:10px">Check fidelity against the live page</button>
+<div id="fidelity-out" class="note hidden"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const urlInput = $('url');
+  const findBtn = $('findPages');
+  const urlCount = $('urlCount');
+
+  /** One URL per line; blanks and duplicates dropped, order preserved. */
+  function readUrls() {
+    const seen = new Set();
+    return urlInput.value.split(/[\n,]/).map((v) => v.trim()).filter((v) => {
+      if (!v || seen.has(v)) return false;
+      seen.add(v);
+      return true;
+    });
+  }
+
+  /** Path-only label so a batch list stays readable. */
+  function shortUrl(u) {
+    try {
+      const p = new URL(u);
+      const path = p.pathname.replace(/\/$/, '');
+      return path ? path.slice(0, 28) : p.host;
+    } catch (e) { return String(u).slice(0, 28); }
+  }
+
+  function refreshCount() {
+    const all = readUrls();
+    const bad = all.filter((u) => !/^https?:\/\//i.test(u));
+    const n = all.length - bad.length;
+    urlCount.textContent = !all.length ? ''
+      : `${n} page${n === 1 ? '' : 's'}${bad.length ? ` · ${bad.length} invalid` : ''}`;
+  }
+  const serviceInput = $('service');
+  const tokenInput = $('token');
+  const rootInput = $('root');
+  const dismissInput = $('dismiss');
+  const stateSelInput = $('stateSel');
+  const goBtn = $('go');
+  const stagesEl = $('stages');
+  const resultEl = $('result');
+  const errorEl = $('error');
+  const fidelityBtn = $('fidelity');
+  const fidelityOut = $('fidelity-out');
+
+  let frames = [];
+  let notes = [];
+
+  // Persistence is best-effort: the iframe is sandboxed in some Figma builds.
+  try {
+    const saved = JSON.parse(localStorage.getItem('w2f') || '{}');
+    if (saved.url) urlInput.value = saved.url;
+    refreshCount();
+    if (saved.service) serviceInput.value = saved.service;
+    if (saved.token) tokenInput.value = saved.token;
+    if (saved.mobile) { $('vp-mobile').checked = true; }
+    if (saved.desktop === false) { $('vp-desktop').checked = false; }
+    if (saved.states === false) { $('wantStates').checked = false; }
+    if (saved.components === false) { $('wantComponents').checked = false; }
+    if (saved.autoLayout === false) { $('wantAutoLayout').checked = false; }
+  } catch (e) {}
+
+  // Building component sets only means anything if states were captured.
+  const statesBox = $('wantStates');
+  const componentsBox = $('wantComponents');
+  function syncComponentsBox() {
+    const on = statesBox.checked;
+    componentsBox.disabled = !on;
+    componentsBox.closest('.chk').dataset.off = String(!on);
+  }
+  statesBox.addEventListener('change', syncComponentsBox);
+  syncComponentsBox();
+
+  syncSetup();
+
+  function save() {
+    try {
+      localStorage.setItem('w2f', JSON.stringify({
+        url: urlInput.value.trim(),
+        service: serviceInput.value.trim(),
+        token: tokenInput.value.trim(),
+        desktop: $('vp-desktop').checked,
+        mobile: $('vp-mobile').checked,
+        states: $('wantStates').checked,
+        components: $('wantComponents').checked,
+        autoLayout: $('wantAutoLayout').checked
+      }));
+    } catch (e) {}
+  }
+
+  // Until a service is configured the plugin cannot do anything, so say that up
+  // front instead of letting the first import fail with a network error.
+  function syncSetup() {
+    const configured = !!serviceInput.value.trim();
+    $('setup').classList.toggle('hidden', configured);
+    goBtn.disabled = !configured;
+    goBtn.textContent = configured ? 'Import to Figma' : 'Set a capture service first';
+  }
+  serviceInput.addEventListener('input', syncSetup);
+
+  document.querySelectorAll('.vp input').forEach((cb) => {
+    const sync = () => { cb.closest('.vp').dataset.on = String(cb.checked); };
+    cb.addEventListener('change', sync);
+    sync();
+  });
+
+  // --- staged progress ------------------------------------------------------
+  function setStages(list) {
+    stagesEl.classList.remove('hidden');
+    stagesEl.innerHTML = '';
+    list.forEach((label) => {
+      const li = document.createElement('li');
+      li.textContent = label;
+      li.dataset.state = 'pending';
+      stagesEl.appendChild(li);
+    });
+  }
+  function markStage(label, state) {
+    const items = Array.from(stagesEl.children);
+    const idx = items.findIndex((li) => li.dataset.key === label || li.textContent === label);
+    if (idx < 0) return;
+    items.forEach((li, i) => { if (i < idx) li.dataset.state = 'done'; });
+    items[idx].dataset.state = state;
+  }
+  function stageText(label, text) {
+    const items = Array.from(stagesEl.children);
+    const found = items.find((li) => li.dataset.key === label);
+    if (found) found.textContent = text;
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.remove('hidden');
+  }
+
+  // --- talking to the plugin main thread ------------------------------------
+  const waiters = new Map();
+  function waitFor(type) {
+    return new Promise((resolve) => {
+      const list = waiters.get(type) || [];
+      list.push(resolve);
+      waiters.set(type, list);
+    });
+  }
+  function send(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
+
+  /** A hosted service is token-gated; a local one ignores the header. */
+  function authHeaders(extra) {
+    const h = Object.assign({}, extra || {});
+    const t = tokenInput.value.trim();
+    if (t) h['x-capture-token'] = t;
+    return h;
+  }
+
+  window.onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'stage') stageText(msg.stageKey || 'build', msg.stage);
+    if (msg.type === 'node-progress') stageText('build', `Building layers — ${msg.count}`);
+    if (msg.type === 'fidelity-note') notes.push(msg.note);
+    if (msg.type === 'error') showError(msg.error);
+    const list = waiters.get(msg.type);
+    if (list && list.length) {
+      waiters.set(msg.type, []);
+      list.forEach((fn) => fn(msg));
+    }
+  };
+
+  // --- import ---------------------------------------------------------------
+  async function run() {
+    errorEl.classList.add('hidden');
+    resultEl.classList.add('hidden');
+    fidelityBtn.classList.add('hidden');
+    fidelityOut.classList.add('hidden');
+    frames = [];
+    notes = [];
+
+    const urls = readUrls();
+    const service = serviceInput.value.trim().replace(/\/$/, '');
+    const dismiss = dismissInput.value.trim();
+    const rootSelector = rootInput.value.trim();
+    // Tabs are found automatically via ARIA; this is the escape hatch for
+    // widgets that are hand-rolled and carry no roles.
+    const stateSelectors = stateSelInput.value.split(',').map((v) => v.trim()).filter(Boolean);
+    const wantStates = $('wantStates').checked;
+    const wantComponents = wantStates && $('wantComponents').checked;
+    const wantAutoLayout = $('wantAutoLayout').checked;
+
+    if (!urls.length) {
+      showError('Enter at least one URL, starting with https://');
+      return;
+    }
+    const bad = urls.find((u) => !/^https?:\/\//i.test(u));
+    if (bad) {
+      showError(`Not a full URL: ${bad}`);
+      return;
+    }
+    const viewports = [];
+    if ($('vp-desktop').checked) viewports.push({ label: 'Desktop', width: 1440 });
+    if ($('vp-mobile').checked) viewports.push({ label: 'Mobile', width: 390 });
+    if (!viewports.length) {
+      showError('Select at least one viewport.');
+      return;
+    }
+
+    save();
+    goBtn.disabled = true;
+    goBtn.textContent = 'Importing…';
+
+    // One line per page/viewport pair. Three lines each would make a
+    // forty-page batch unreadable.
+    const steps = [];
+    urls.forEach((u, ui) => {
+      viewports.forEach((v) => {
+        steps.push({ key: `p${ui}-${v.width}`, text: `${shortUrl(u)} — ${v.label}` });
+      });
+    });
+    steps.push({ key: 'done', text: 'Done' });
+
+    stagesEl.classList.remove('hidden');
+    stagesEl.innerHTML = '';
+    steps.forEach((s) => {
+      const li = document.createElement('li');
+      li.textContent = s.text;
+      li.dataset.key = s.key;
+      li.dataset.state = 'pending';
+      stagesEl.appendChild(li);
+    });
+
+    const setState = (key, state, text) => {
+      const li = Array.from(stagesEl.children).find((x) => x.dataset.key === key);
+      if (!li) return;
+      li.dataset.state = state;
+      if (text) li.textContent = text;
+    };
+
+    let host = urls[0];
+    try { host = new URL(urls[0]).host; } catch (e) {}
+
+    send({ type: 'import-begin', host });
+
+    // One bad page must not take the batch down with it, so each page/viewport
+    // pair is isolated and failures are collected for the summary.
+    const failures = [];
+
+    try {
+      for (let ui = 0; ui < urls.length; ui++) {
+        const pageUrl = urls[ui];
+        const name = shortUrl(pageUrl);
+
+        for (const vp of viewports) {
+          const key = `p${ui}-${vp.width}`;
+          try {
+            setState(key, 'active', `${name} — ${vp.label} · loading`);
+
+            const res = await fetch(`${service}/capture`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({
+                url: pageUrl,
+                width: vp.width,
+                dismissSelectors: dismiss ? [dismiss] : [],
+                rootSelector,
+                stateSelectors,
+                // No point paying for the state pass if nothing will be built from it.
+                captureStates: wantStates && wantComponents
+              })
+            });
+
+            // A gateway timeout answers with an HTML page, not JSON, so parsing
+            // first would report a syntax error instead of what went wrong.
+            let payload;
+            try {
+              payload = await res.json();
+            } catch (parseErr) {
+              throw new Error(res.status === 504
+                ? 'The capture service timed out on this page. Try it with tab & accordion states turned off.'
+                : `Capture failed (${res.status})`);
+            }
+            if (!res.ok) throw new Error(payload.error || `Capture failed (${res.status})`);
+
+            // A hosted capture returns a URL rather than the document itself —
+            // a serialised page runs past the 4.5MB a Vercel response may carry.
+            let doc = payload.doc;
+            if (!doc && payload.docUrl) {
+              setState(key, 'active', `${name} — ${vp.label} · downloading`);
+              const dres = await fetch(payload.docUrl);
+              if (!dres.ok) throw new Error(`Could not download the captured page (${dres.status})`);
+              doc = await dres.json();
+            }
+            if (!doc) throw new Error('The service returned no document.');
+
+            // Warnings the capture raised about itself — a truncated page, a
+            // clipped screenshot — matter more than anything the build reports,
+            // because they mean what arrived is not the whole page.
+            (doc.warnings || []).forEach((w) => {
+              if (notes.indexOf(w) < 0) notes.push(w);
+            });
+
+            // --- assets ---
+            const manifest = (payload.assets && payload.assets.manifest) || [];
+            let n = 0;
+            for (const asset of manifest) {
+              n++;
+              setState(key, 'active', `${name} — ${vp.label} · images ${n}/${manifest.length}`);
+              if (asset.kind === 'svg') {
+                send({ type: 'asset', id: asset.id, kind: 'svg', svg: asset.svg });
+                continue;
+              }
+              try {
+                const r = await fetch(asset.href || `${service}/asset/${asset.id}`,
+                  asset.href ? undefined : { headers: authHeaders() });
+                if (!r.ok) continue;
+                const buf = await r.arrayBuffer();
+                send({ type: 'asset', id: asset.id, kind: 'raster', bytes: new Uint8Array(buf) });
+              } catch (e) { /* a missing image shouldn't stop the import */ }
+            }
+
+            // --- build ---
+            setState(key, 'active', `${name} — ${vp.label} · building`);
+            const done = waitFor('doc-done');
+            send({
+              type: 'import-doc',
+              doc,
+              label: urls.length > 1 ? `${name} ${vp.label}` : vp.label,
+              runId: payload.runId,
+              wantComponents,
+              wantAutoLayout,
+              host
+            });
+            const result = await done;
+            result.result.runId = payload.runId;
+            result.result.pageUrl = pageUrl;
+            frames.push(result.result);
+
+            const failedCount = ((payload.assets && payload.assets.failed) || []).length;
+            setState(key, 'done',
+              `${name} — ${vp.label} · ${result.result.nodes} layers` +
+              (failedCount ? ` · ${failedCount} images unavailable` : ''));
+          } catch (e) {
+            const msg = String((e && e.message) || e);
+            failures.push({ url: pageUrl, label: vp.label, error: msg });
+            setState(key, 'error', `${name} — ${vp.label} · ${msg.slice(0, 44)}`);
+          }
+        }
+      }
+
+      if (!frames.length) {
+        // Every pair failing at the network layer means one thing: the service
+        // isn't up. Say that, rather than counting the casualties.
+        const allNetwork = failures.every((f) => /Failed to fetch|NetworkError/i.test(f.error));
+        throw new Error(allNetwork
+          ? `Can't reach the capture service at ${service}. Start it with "npm start" in capture-service.`
+          : `Nothing imported — all ${failures.length} attempts failed.`);
+      }
+
+      send({ type: 'import-end' });
+      await waitFor('import-complete');
+      setState('done', 'done', 'Done');
+
+      // --- summary ---
+      const subs = frames.flatMap((f) => f.substitutions || []);
+      const unique = Array.from(new Map(subs.map((s) => [s.from, s])).values());
+      const pages = new Set(frames.map((f) => f.pageUrl).filter(Boolean)).size;
+      const sets = frames.reduce((n, f) => n + ((f.stateSets || []).length), 0);
+
+      let html = `<b>Imported ${frames.length} frame${frames.length === 1 ? '' : 's'}` +
+        (pages > 1 ? ` across ${pages} pages` : '') + `.</b>`;
+      if (sets) html += `<br>${sets} component set${sets === 1 ? '' : 's'} from tab states.`;
+      const al = frames.reduce((acc, f) => {
+        acc.applied += (f.autoLayout && f.autoLayout.applied) || 0;
+        acc.reverted += (f.autoLayout && f.autoLayout.reverted) || 0;
+        return acc;
+      }, { applied: 0, reverted: 0 });
+      if (al.applied || al.reverted) {
+        html += `<br>${al.applied} frame${al.applied === 1 ? '' : 's'} on Auto Layout` +
+          (al.reverted ? ` · ${al.reverted} kept absolute (would have shifted)` : '') + `.`;
+      }
+
+      if (failures.length) {
+        html += `<br><br><b>${failures.length} failed</b><ul class="rows">` +
+          failures.slice(0, 6).map((f) =>
+            `<li><span>${esc(shortUrl(f.url))} ${esc(f.label)}</span><span>${esc(f.error.slice(0, 30))}</span></li>`
+          ).join('') + `</ul>`;
+        if (failures.length > 6) html += `…and ${failures.length - 6} more.`;
+      }
+      if (unique.length) {
+        html += `<br><br><b>Fonts substituted</b><ul class="rows">` +
+          unique.slice(0, 6).map((s) => `<li><span>${esc(s.from)}</span><span>→ ${esc(s.to)}</span></li>`).join('') +
+          `</ul>`;
+        if (unique.length > 6) html += `<br>…and ${unique.length - 6} more.`;
+      }
+      if (notes.length) {
+        html += `<br><br><b>Check these</b><br>` + notes.slice(0, 5).map(esc).join('<br>');
+        if (notes.length > 5) html += `<br>…and ${notes.length - 5} more.`;
+      }
+      resultEl.innerHTML = html;
+      resultEl.classList.remove('hidden');
+      fidelityBtn.classList.remove('hidden');
+    } catch (err) {
+      const m = String(err && err.message ? err.message : err);
+      showError(
+        /Failed to fetch|NetworkError/i.test(m)
+          ? `Can't reach the capture service at ${service}. Start it with "npm start" in capture-service.`
+          : m
+      );
+    } finally {
+      syncSetup();
+    }
+  }
+
+  // --- fidelity harness -----------------------------------------------------
+  async function checkFidelity() {
+    const service = serviceInput.value.trim().replace(/\/$/, '');
+    fidelityBtn.disabled = true;
+    fidelityBtn.textContent = 'Comparing…';
+    fidelityOut.classList.remove('hidden');
+    fidelityOut.innerHTML = 'Exporting frames…';
+
+    try {
+      const results = [];
+      for (const frame of frames) {
+        const ready = waitFor('export-ready');
+        send({ type: 'export-frame', frameId: frame.frameId, runId: frame.runId });
+        const exported = await ready;
+
+        const res = await fetch(`${service}/diff/${frame.runId}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/octet-stream' }),
+          body: exported.bytes
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Diff failed');
+        results.push({ label: frame.label, ...data });
+      }
+
+      fidelityOut.innerHTML = results.map((r) => `
+        <div style="margin-bottom:10px">
+          <div class="score">${(r.score * 100).toFixed(1)}%</div>
+          <div style="color:var(--text-dim)">${esc(r.label)} — pixel match against the live page</div>
+          <ul class="rows">
+            ${r.worstRegions.map((w) => `<li><span>y ${w.yStart}–${w.yEnd}</span><span>${(w.mismatch * 100).toFixed(1)}% off</span></li>`).join('')}
+          </ul>
+        </div>`).join('') +
+        `<div style="color:var(--text-dim)">Heatmaps written to <code>capture-service/runs/</code>.</div>`;
+    } catch (err) {
+      fidelityOut.innerHTML = `<span style="color:var(--danger)">${esc(String(err.message || err))}</span>`;
+    } finally {
+      fidelityBtn.disabled = false;
+      fidelityBtn.textContent = 'Check fidelity against the live page';
+    }
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  goBtn.addEventListener('click', run);
+  fidelityBtn.addEventListener('click', checkFidelity);
+  // Enter inserts a newline now that this is a list; Cmd/Ctrl+Enter runs.
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run();
+  });
+  urlInput.addEventListener('input', refreshCount);
+
+  findBtn.addEventListener('click', async () => {
+    const service = serviceInput.value.trim().replace(/\/$/, '');
+    const first = readUrls()[0];
+    if (!first || !/^https?:\/\//i.test(first)) {
+      showError('Put one URL on the first line, then press this to find the rest.');
+      return;
+    }
+    findBtn.disabled = true;
+    const label = findBtn.textContent;
+    findBtn.textContent = 'Looking…';
+    try {
+      const r = await fetch(`${service}/discover-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: first, limit: 60 })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not read that site');
+      if (!j.links || !j.links.length) throw new Error('No linked pages found on that page.');
+      urlInput.value = j.links.join('\n');
+      refreshCount();
+      errorEl.classList.add('hidden');
+    } catch (e) {
+      showError(String(e.message || e));
+    } finally {
+      findBtn.disabled = false;
+      findBtn.textContent = label;
+    }
+  });
+})();
+</script>
+</body>
+</html>

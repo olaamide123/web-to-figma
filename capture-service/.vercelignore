@@ -1,0 +1,5 @@
+runs
+node_modules
+*.log
+.env*
+.vercel

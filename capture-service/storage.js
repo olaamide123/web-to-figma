@@ -67,4 +67,40 @@ function localPath(key) {
   return useBlob ? null : path.join(RUNS_DIR, key);
 }
 
-module.exports = { put, get, localPath, useBlob, RUNS_DIR };
+/**
+ * Delete captures older than maxAgeMs.
+ *
+ * A capture is somebody's web page and every image on it, and there is no
+ * reason to keep it once the import is done. Without this the store only ever
+ * grows, and a privacy policy saying "we delete captures" would not be true.
+ */
+async function sweep(maxAgeMs) {
+  const cutoff = Date.now() - maxAgeMs;
+
+  if (!useBlob) {
+    let deleted = 0, kept = 0;
+    for (const name of fs.readdirSync(RUNS_DIR)) {
+      const dir = path.join(RUNS_DIR, name);
+      try {
+        if (fs.statSync(dir).mtimeMs < cutoff) { fs.rmSync(dir, { recursive: true, force: true }); deleted++; }
+        else kept++;
+      } catch (e) { /* vanished under us, or not ours to remove */ }
+    }
+    return { deleted, kept };
+  }
+
+  let cursor, deleted = 0, kept = 0;
+  do {
+    const page = await blob.list({ token: TOKEN, cursor, limit: 1000 });
+    const stale = page.blobs.filter((b) => new Date(b.uploadedAt).getTime() < cutoff);
+    if (stale.length) {
+      await blob.del(stale.map((b) => b.url), { token: TOKEN });
+      deleted += stale.length;
+    }
+    kept += page.blobs.length - stale.length;
+    cursor = page.hasMore ? page.cursor : null;
+  } while (cursor);
+  return { deleted, kept };
+}
+
+module.exports = { put, get, localPath, sweep, useBlob, RUNS_DIR };

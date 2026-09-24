@@ -34,7 +34,8 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-  if (!ACCESS_TOKEN || req.path === '/health') return next();
+  // /cleanup does its own check, because Vercel's cron cannot know the token.
+  if (!ACCESS_TOKEN || req.path === '/health' || req.path === '/cleanup') return next();
   const sent = req.get('x-capture-token') || (req.get('authorization') || '').replace(/^Bearer /i, '');
   if (sent !== ACCESS_TOKEN) {
     return res.status(401).json({ error: 'Wrong or missing access token. Set it in the plugin under Capture settings.' });
@@ -43,6 +44,28 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true, version: 1, hosted: storage.useBlob, auth: !!ACCESS_TOKEN }));
+
+/**
+ * GET /cleanup — delete captures older than RETENTION_DAYS.
+ * Runs daily from Vercel Cron; also callable by hand with the access token.
+ */
+app.get('/cleanup', async (req, res) => {
+  // Vercel signs its own cron requests, which will not carry the plugin token.
+  const fromCron = !!req.get('x-vercel-cron') ||
+    (process.env.CRON_SECRET && req.get('authorization') === `Bearer ${process.env.CRON_SECRET}`);
+  if (ACCESS_TOKEN && !fromCron) {
+    const sent = req.get('x-capture-token') || (req.get('authorization') || '').replace(/^Bearer /i, '');
+    if (sent !== ACCESS_TOKEN) return res.status(401).json({ error: 'Not authorised.' });
+  }
+  const days = Number(process.env.RETENTION_DAYS || 7);
+  try {
+    const result = await storage.sweep(days * 24 * 60 * 60 * 1000);
+    console.log('[cleanup]', JSON.stringify(result), 'olderThanDays=' + days);
+    res.json({ ...result, olderThanDays: days });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
 
 /**
  * POST /capture

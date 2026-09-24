@@ -33,9 +33,7 @@ plugin.
 
 Push this repo to GitHub, then:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR-USER/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20The%20plugin%20sends%20it%20to%20prove%20a%20request%20is%20yours.&stores=%5B%7B%22type%22%3A%22blob%22%7D%5D)
-
-> Replace `YOUR-USER` in that link with your GitHub account before publishing.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/olaamide123/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20The%20plugin%20sends%20it%20to%20prove%20a%20request%20is%20yours.&stores=%5B%7B%22type%22%3A%22blob%22%7D%5D)
 
 It provisions a Blob store and asks for one environment variable:
 
@@ -83,12 +81,11 @@ Before the first publish:
    the matching Blob host, which covers the deploy button above. If you expect
    people to host elsewhere, widen it — Figma enforces this list, and review
    will ask why.
-3. **Point the deploy button at your repo** (see the note above).
-4. **Store assets.** A 128x128 icon and a 1920x960 cover, both in
+4. **Store assets.** A 128x128 icon and a 1920x960 cover, both already in
    `figma-plugin/store/`.
-5. **Privacy.** The service stores captured documents and images in your Blob
-   store and currently never deletes them. Either add a retention sweep or say
-   so plainly in the listing.
+3. **Retention.** Captures are deleted automatically after `RETENTION_DAYS`
+   (7 by default) by a daily cron job. Nothing else is stored, and there is no
+   central server — each user's captures live only in their own Blob store.
 
 ## What it does
 

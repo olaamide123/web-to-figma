@@ -188,13 +188,15 @@
   <input id="dismiss" type="text" placeholder="Cookie banner selector (optional)" spellcheck="false" style="margin-top:6px" />
   <input id="stateSel" type="text" placeholder="Tab/state selectors, comma separated (optional)" spellcheck="false" style="margin-top:6px" />
   <label class="chk"><input type="checkbox" id="wantAutoLayout" checked /> Use Auto Layout where the page uses flexbox <span class="muted">(reverts if it shifts anything)</span></label>
+  <label class="chk"><input type="checkbox" id="wantFidelity" /> Fetch a reference screenshot <span class="muted">(enables the fidelity check; larger download)</span></label>
   <label class="chk"><input type="checkbox" id="wantStates" checked /> Capture tab &amp; accordion states <span class="muted">(slower on big batches)</span></label>
   <label class="chk sub"><input type="checkbox" id="wantComponents" checked /> Build them as component sets <span class="muted">(off = pages only)</span></label>
 
   <details class="adv">
     <summary>Advanced &middot; run your own capture service</summary>
-    <p class="advnote">Leave these blank to use the shared service. Running your own removes
-      the daily limit and keeps every captured page on infrastructure you control.</p>
+    <p class="advnote">Leave these blank to use the free shared service. Running your own
+      keeps every captured page on infrastructure you control, and is not subject to the
+      shared service's capacity.</p>
     <input id="service" type="text" placeholder="Capture service URL" spellcheck="false" />
     <input id="token" type="text" placeholder="Access token, if your service sets one" spellcheck="false" style="margin-top:6px" />
   </details>
@@ -302,6 +304,49 @@
   const DEFAULT_SERVICE = 'https://web-to-figma-capture.vercel.app';
   const serviceUrl = () => (serviceInput.value.trim() || DEFAULT_SERVICE).replace(/\/$/, '');
   let installToken = null;
+
+  // Reference screenshots live here and nowhere else: held in memory purely so
+  // the fidelity check has something to compare against, discarded with the
+  // plugin window. The service stores nothing.
+  const referenceFor = Object.create(null);
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function bytesToB64(bytes) {
+    let bin = '';
+    const chunk = 0x8000; // apply() argument limit
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(bin);
+  }
+
+  /**
+   * Turn a failing response into something a person can act on.
+   *
+   * Capacity is deliberately never described as "this month": a 503 is usually
+   * a moment, not an exhausted allowance, and telling someone their month is
+   * gone when it is not sends them away for nothing. Real page errors keep
+   * their own message, so a broken site never looks like a broken plugin.
+   */
+  function serviceError(status, payload, service) {
+    const own = payload && payload.error;
+    const onShared = !tokenInput.value.trim() && service === DEFAULT_SERVICE;
+    if ([402, 429, 502, 503, 504].indexOf(status) >= 0) {
+      return onShared
+        ? 'The free shared capture service has reached its capacity. '
+          + 'Try again later or use Advanced to connect your own capture service.'
+        : (own || `Your capture service is unavailable right now (${status}).`);
+    }
+    if (status === 401) return own || 'This install is not registered yet. Reopen the plugin.';
+    return own || `Capture failed (${status}).`;
+  }
+
 
   function syncSetup() {
     $('setup').classList.add('hidden');
@@ -424,6 +469,7 @@
     const wantStates = $('wantStates').checked;
     const wantComponents = wantStates && $('wantComponents').checked;
     const wantAutoLayout = $('wantAutoLayout').checked;
+    const wantFidelity = $('wantFidelity').checked;
 
     if (!urls.length) {
       showError('Enter at least one URL, starting with https://');
@@ -511,6 +557,7 @@
                 width: vp.width,
                 dismissSelectors: dismiss ? [dismiss] : [],
                 rootSelector,
+                includeReference: wantFidelity,
                 stateSelectors,
                 // No point paying for the state pass if nothing will be built from it.
                 captureStates: wantStates && wantComponents
@@ -519,58 +566,29 @@
 
             // A gateway timeout answers with an HTML page, not JSON, so parsing
             // first would report a syntax error instead of what went wrong.
-            let payload;
-            try {
-              payload = await res.json();
-            } catch (parseErr) {
-              throw new Error(res.status === 504
-                ? 'The capture service timed out on this page. Try it with tab & accordion states turned off.'
-                : `Capture failed (${res.status})`);
-            }
-            if (res.status === 401 && payload.code === 'REGISTER_REQUIRED' && !tokenInput.value.trim()) {
-              // Server re-keyed, or the stored token was never valid. Re-register
-              // once and let the outer loop retry this pair on the next pass.
-              await ensureInstall(true);
-              throw new Error('Install was re-registered — press Import again.');
-            }
-            if (res.status === 429) throw new Error(payload.error || 'Daily limit reached.');
-            if (!res.ok) throw new Error(payload.error || `Capture failed (${res.status})`);
+            let payload = null;
+            try { payload = await res.json(); } catch (parseErr) { payload = null; }
 
-            // A hosted capture returns a URL rather than the document itself —
-            // a serialised page runs past the 4.5MB a Vercel response may carry.
-            let doc = payload.doc;
-            if (!doc && payload.docUrl) {
-              setState(key, 'active', `${name} — ${vp.label} · downloading`);
-              const dres = await fetch(payload.docUrl);
-              if (!dres.ok) throw new Error(`Could not download the captured page (${dres.status})`);
-              doc = await dres.json();
-            }
-            if (!doc) throw new Error('The service returned no document.');
+            if (!res.ok) throw new Error(serviceError(res.status, payload, service));
+            if (!payload || !payload.doc) throw new Error('The service returned no document.');
 
-            // Warnings the capture raised about itself — a truncated page, a
-            // clipped screenshot — matter more than anything the build reports,
-            // because they mean what arrived is not the whole page.
-            (doc.warnings || []).forEach((w) => {
-              if (notes.indexOf(w) < 0) notes.push(w);
-            });
+            const doc = payload.doc;
+            (doc.warnings || []).forEach((w) => { if (notes.indexOf(w) < 0) notes.push(w); });
+            // Held only in memory, and only so the fidelity check has something
+            // to compare against; nothing is stored anywhere.
+            referenceFor[payload.runId] = payload.reference || null;
 
-            // --- assets ---
-            const manifest = (payload.assets && payload.assets.manifest) || [];
+            // --- assets: already here, nothing to download ---
+            const manifest = payload.assets || [];
             let n = 0;
             for (const asset of manifest) {
               n++;
               setState(key, 'active', `${name} — ${vp.label} · images ${n}/${manifest.length}`);
               if (asset.kind === 'svg') {
                 send({ type: 'asset', id: asset.id, kind: 'svg', svg: asset.svg });
-                continue;
+              } else if (asset.b64) {
+                send({ type: 'asset', id: asset.id, kind: 'raster', bytes: b64ToBytes(asset.b64) });
               }
-              try {
-                const r = await fetch(asset.href || `${service}/asset/${asset.id}`,
-                  asset.href ? undefined : { headers: authHeaders() });
-                if (!r.ok) continue;
-                const buf = await r.arrayBuffer();
-                send({ type: 'asset', id: asset.id, kind: 'raster', bytes: new Uint8Array(buf) });
-              } catch (e) { /* a missing image shouldn't stop the import */ }
             }
 
             // --- build ---
@@ -590,7 +608,7 @@
             result.result.pageUrl = pageUrl;
             frames.push(result.result);
 
-            const failedCount = ((payload.assets && payload.assets.failed) || []).length;
+            const failedCount = (payload.assetsFailed || []).length;
             setState(key, 'done',
               `${name} — ${vp.label} · ${result.result.nodes} layers` +
               (failedCount ? ` · ${failedCount} images unavailable` : ''));
@@ -603,9 +621,11 @@
       }
 
       if (!frames.length) {
-        // Every pair failing at the network layer means one thing: the service
-        // isn't up. Say that, rather than counting the casualties.
+        // When every attempt failed the same way, say what that way was — a
+        // casualty count tells the reader nothing they can act on.
         const allNetwork = failures.every((f) => /Failed to fetch|NetworkError/i.test(f.error));
+        const allCapacity = failures.every((f) => /reached its capacity|unavailable right now/i.test(f.error));
+        if (allCapacity) throw new Error(failures[0].error);
         throw new Error(allNetwork
           ? `Can't reach the capture service at ${service}. Check your connection, or set your own service under Advanced.`
           : `Nothing imported — all ${failures.length} attempts failed.`);
@@ -681,17 +701,26 @@
         send({ type: 'export-frame', frameId: frame.frameId, runId: frame.runId });
         const exported = await ready;
 
-        const res = await fetch(`${service}/diff/${frame.runId}`, {
+        // Both images go up together: the reference came back with the capture
+        // and is held in memory here, so the service stores nothing between the
+        // two calls.
+        const reference = referenceFor[frame.runId];
+        if (!reference) {
+          results.push({ label: frame.label, skipped: 'Re-import with the fidelity option to compare this frame.' });
+          continue;
+        }
+        const res = await fetch(`${service}/diff`, {
           method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/octet-stream' }),
-          body: exported.bytes
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ reference, candidate: bytesToB64(exported.bytes) })
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Diff failed');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(serviceError(res.status, data, service));
         results.push({ label: frame.label, ...data });
       }
 
-      fidelityOut.innerHTML = results.map((r) => `
+      fidelityOut.innerHTML = results.map((r) => r.skipped ? `
+        <div style="margin-bottom:10px;color:var(--text-dim)">${esc(r.label)} — ${esc(r.skipped)}</div>` : `
         <div style="margin-bottom:10px">
           <div class="score">${(r.score * 100).toFixed(1)}%</div>
           <div style="color:var(--text-dim)">${esc(r.label)} — pixel match against the live page</div>
@@ -699,7 +728,7 @@
             ${r.worstRegions.map((w) => `<li><span>y ${w.yStart}–${w.yEnd}</span><span>${(w.mismatch * 100).toFixed(1)}% off</span></li>`).join('')}
           </ul>
         </div>`).join('') +
-        `<div style="color:var(--text-dim)">Heatmaps written to <code>capture-service/runs/</code>.</div>`;
+        `<div style="color:var(--text-dim)">Compared in memory — nothing is stored on the service.</div>`;
     } catch (err) {
       fidelityOut.innerHTML = `<span style="color:var(--danger)">${esc(String(err.message || err))}</span>`;
     } finally {

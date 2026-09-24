@@ -25,25 +25,23 @@ Figma plugin  ◀──JSON + bytes──   { root, overlays, fonts, assets }
 ## Setup
 
 **Using the plugin** — nothing to set up. Open it, paste a URL, press Import.
-On first run it quietly registers itself with the shared capture service and
-remembers that; there is no account, no key to paste and nothing to deploy.
+On first run it registers itself with the shared capture service and remembers
+that. No account, no key, nothing to deploy.
 
-The shared service allows 60 captures per install per day. If you need more, or
-you would rather captured pages never touch someone else's infrastructure, run
-your own (below) and put its URL under **Advanced** in the plugin.
+The shared service runs on a free plan, so it has a ceiling. When it is reached
+the plugin says so and points at the Advanced option; it never bills anyone,
+because the plan it runs on cannot bill.
 
 **Running your own capture service (optional)**
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/olaamide123/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20Paste%20the%20same%20value%20into%20the%20plugin%20under%20Advanced.&stores=%5B%7B%22type%22%3A%22blob%22%7D%5D)
-
-It provisions a Blob store and asks for one variable:
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/olaamide123/web-to-figma&env=CAPTURE_TOKEN&envDescription=Any%20random%20string.%20Paste%20the%20same%20value%20into%20the%20plugin%20under%20Advanced.)
 
 | Variable | What to put |
 |---|---|
-| `CAPTURE_TOKEN` | Any random string (`openssl rand -base64 24`). Paste the same value into the plugin under Advanced. Requests carrying it skip the daily limit entirely. |
+| `CAPTURE_TOKEN` | Any random string (`openssl rand -base64 24`). Paste the same value into the plugin under Advanced. A deployment with this set is private: it serves only that token and skips registration entirely. |
+| `INSTALL_SIGNING_SECRET` | Only for a deployment that serves the public plugin. Leave unset for a private one. |
 
-Captures run 20-100 seconds at 2GB, which is fine on Vercel's Hobby plan for
-personal use.
+Captures run 10-25 seconds at 2GB. No storage is provisioned and none is needed.
 
 **Running it locally**
 
@@ -55,36 +53,55 @@ npm start            # http://localhost:3000
 ```
 
 Node 18.17+. Put `http://localhost:3000` under Advanced and leave the token
-blank — a local service asks for nothing.
+blank — a local service asks for nothing, and keeps run artifacts in `runs/`
+so the fidelity heatmaps survive.
 
 **Developing the plugin**
 
 Figma -> Plugins -> Development -> Import plugin from manifest -> pick
-`figma-plugin/manifest.json`. No build step; it is plain JS. Changing
-`manifest.json` requires re-importing, as Figma only reads it once.
+`figma-plugin/manifest.json`. Plain JS, no build step. Changing
+`manifest.json` requires re-importing; Figma reads it only once.
 
-## How public access works
+## Architecture
 
-A distributed plugin bundle is readable, so it ships no secret. Instead:
+A capture is one request and one response. The service renders the page,
+serialises it, downloads and normalises every image, and writes the whole
+thing back as a single streamed JSON body: document, assets inline as base64,
+and nothing else. There is no second round trip and no storage of any kind.
 
-1. On first run the plugin calls `POST /register` and gets back a token signed
-   with a key that never leaves the server.
-2. It stores that in `figma.clientStorage` and sends it as `x-w2f-install` on
-   every later request.
-3. The server verifies the signature, then meters that install: 60 captures a
-   day, counted in Blob under `meter/<date>/`.
-4. `/register` is itself capped per IP per day, so tokens cannot be minted
-   without bound.
+That shape is deliberate. The previous version put every asset into object
+storage and handed back URLs, which cost one persistent write per image — and
+on a free plan that single detail capped the entire service at roughly nineteen
+captures a month. Removing it raised the ceiling by about fifty times and
+removed storage cost from the product completely.
 
-This is metering, not authentication — nothing proves the caller is really the
-plugin, and someone determined can register again. What it buys is a credential
-that can be re-keyed without shipping a new plugin version, a per-install
-ceiling on cost, and no extractable secret in the bundle. The hard limits on
-abuse are that per-IP cap, the private-network guard in `net-guard.js`, and
-Vercel's own spend controls.
+**Measured response sizes**, on real pages through the deployed service:
 
-Set `CAPTURE_TOKEN` on a deployment and it behaves as a private service
-instead: that token grants unmetered access and registration is bypassed.
+| Page | Assets | Response | Time |
+|---|---|---|---|
+| Bootstrap docs | 2 | 0.59 MB | 12.9s |
+| Flock, desktop | 100 | 1.72 MB | 21.5s |
+| Flock, mobile 390 | 96 | 1.59 MB | 20.4s |
+| apple.com | 32 | 9.89 MB | 10.9s |
+| tailwindcss.com | 34 | 11.98 MB | 18.8s |
+
+The documented 4.5MB response cap does not apply to this deployment: 64MB was
+tested intact, buffered and streamed. Streaming is used because it is roughly
+2.5x faster at size and halves peak memory.
+
+**Identity.** A distributed plugin bundle is readable, so it ships no secret.
+`POST /register` mints a token signed with a key that stays on the server; the
+plugin keeps it in `figma.clientStorage` and sends it as `x-w2f-install`.
+That is metering-grade, not authentication: nothing proves the caller is the
+plugin and an abuser can register again. What it buys is a credential that can
+be re-keyed without shipping a new plugin, and no extractable secret. The hard
+ceiling on abuse is the platform's own free allowance, which stops the service
+rather than billing for it, plus the private-network guard in `net-guard.js`.
+
+**Nothing is retained.** The hosted service writes no files, keeps no database
+and stores no captured page. The reference screenshot used by the fidelity
+check travels in the response only when asked for, is held in the plugin's
+memory, and is posted back for a stateless comparison.
 
 ## Publishing to the Figma Community
 

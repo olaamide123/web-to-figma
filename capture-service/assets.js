@@ -1,7 +1,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const storage = require('./storage');
 const { assertFetchable } = require('./net-guard');
 
 let sharp = null;
@@ -207,25 +206,20 @@ async function resolveAssets(doc, { concurrency = 8, onProgress } = {}) {
           store.set(id, { ...norm, url });
         }
         const entry = store.get(id);
-        // Hosted, the process that answers /asset/:id is rarely the one that
-        // downloaded it, so hand the plugin a direct URL instead of a promise
-        // that this service still remembers the bytes.
-        if (storage.useBlob && !entry.href) {
-          entry.href = await storage.put(`assets/${id}`, entry.bytes, entry.mime);
-        }
         urlToId.set(url, id);
+        // Everything the plugin needs travels in the capture response. There is
+        // no second round trip and nothing is persisted: a storage round trip
+        // per asset was what capped the free tier at ~19 captures a month.
         manifest.push({
           id,
           url,
-          href: entry.href || undefined,
           kind: entry.kind,
           mime: entry.mime,
           bytes: entry.bytes.length,
           width: entry.width || null,
           height: entry.height || null,
-          // SVGs are small; inline them so the plugin can build vectors without
-          // a second round trip.
-          svg: entry.kind === 'svg' ? entry.text : undefined
+          svg: entry.kind === 'svg' ? entry.text : undefined,
+          b64: entry.kind === 'svg' ? undefined : entry.bytes.toString('base64')
         });
       } catch (e) {
         failed.push({ url, error: String(e.message || e) });

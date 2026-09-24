@@ -11,9 +11,8 @@
   "networkAccess": {
     "allowedDomains": [
       "https://*.vercel.app",
-      "https://*.public.blob.vercel-storage.com",
       "http://localhost:3000"
     ],
-    "reasoning": "Talks to a capture service that the user deploys and owns, which renders the page and returns its serialised DOM, and downloads the images that service stores. No data is sent anywhere else; the plugin has no backend of its own."
+    "reasoning": "Sends the URL you enter to a capture service, which renders that public page in a browser and returns it as layer data in a single response. The default service is ours; you can point the plugin at your own under Advanced, or at localhost when running it yourself. Nothing else is contacted and nothing is stored."
   }
 }

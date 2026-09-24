@@ -52,7 +52,7 @@ app.use(async (req, res, next) => {
 
   // An operator token, when one is configured, is the self-host escape hatch:
   // full access, no metering, nothing to register.
-  if (hasOperatorToken(req)) { req.metered = false; return next(); }
+  if (hasOperatorToken(req)) return next();
 
   // Otherwise the caller must present an install token this server issued.
   // Nothing secret ships in the plugin; it earns this on first run.
@@ -65,7 +65,6 @@ app.use(async (req, res, next) => {
       });
     }
     req.installId = claim.installId;
-    req.metered = true;
     return next();
   }
 
@@ -85,20 +84,22 @@ app.post('/register', async (req, res) => {
     return res.status(501).json({ error: 'This deployment does not issue install tokens.' });
   }
   const ip = (req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
-  const quota = await identity.countRegistration(ip);
-  if (!quota.ok) {
-    return res.status(429).json({ error: 'Too many new installs from this network today. Try again tomorrow.' });
+  if (!identity.allowRegistration(ip)) {
+    return res.status(429).json({ error: 'Too many new installs from this network. Try again shortly.' });
   }
   const { token, installId } = identity.mint();
   console.log('[register]', installId);
-  res.json({ token, dailyCaptureQuota: identity.DAILY_CAPTURES });
+  res.json({ token });
 });
 
 app.get('/health', (req, res) => res.json({
-  ok: true, version: 2, hosted: storage.useBlob,
+  ok: true, version: 3,
   // What a client needs to know before its first call.
-  publicAccess: identity.enabled, operatorToken: !!ACCESS_TOKEN,
-  dailyCaptureQuota: identity.enabled ? identity.DAILY_CAPTURES : null
+  publicAccess: identity.enabled,
+  operatorToken: !!ACCESS_TOKEN,
+  // Nothing is persisted on the hosted service; a self-hosted one keeps runs
+  // on its own disk so the fidelity heatmaps survive.
+  persistentStorage: !storage.EPHEMERAL
 }));
 
 /**
@@ -132,7 +133,11 @@ app.get('/cleanup', async (req, res) => {
  */
 app.post('/capture', async (req, res) => {
   const started = Date.now();
-  const { url, width, dismissSelectors, maxNodes, captureStates, stateSelectors, rootSelector } = req.body || {};
+  const { url, width, dismissSelectors, maxNodes, captureStates, stateSelectors, rootSelector,
+          includeReference } = req.body || {};
+  // Opt-in: the screenshot roughly doubles the payload and only the fidelity
+  // check uses it.
+  const wantReference = includeReference === true;
 
   if (!url || !/^https?:\/\//i.test(url)) {
     return res.status(400).json({ error: 'Enter a URL starting with http:// or https://' });
@@ -148,27 +153,14 @@ app.post('/capture', async (req, res) => {
     return res.status(400).json({ error: String(err.message || err) });
   }
 
-  // Metered only for anonymous public installs; a self-hoster with the
-  // operator token is spending their own money and is not counted.
-  if (req.metered && req.installId) {
-    const quota = await identity.countCapture(req.installId);
-    if (!quota.ok) {
-      return res.status(429).json({
-        error: `Daily limit of ${quota.limit} captures reached for this install. `
-             + 'It resets at midnight UTC — or run your own capture service for no limit.',
-        code: 'QUOTA_EXCEEDED'
-      });
-    }
-    res.setHeader('x-w2f-quota-remaining', String(quota.limit - quota.used));
-  }
-
   const runId = crypto.randomBytes(6).toString('hex');
   const runDir = path.join(RUNS_DIR, runId);
 
   try {
     const t0 = Date.now();
-    const { doc, screenshot } = await capture({
+    const { doc, screenshot: shot } = await capture({
       url, width, dismissSelectors, maxNodes,
+      screenshot: wantReference,
       captureStates: captureStates !== false,
       stateSelectors: Array.isArray(stateSelectors) ? stateSelectors : [],
       rootSelector: typeof rootSelector === 'string' ? rootSelector.trim() : ''
@@ -179,29 +171,49 @@ app.post('/capture', async (req, res) => {
     const assets = await resolveAssets(doc);
     // Anything that could not be rebuilt as layers gets cropped out of the
     // screenshot instead — iframes and icon-font glyphs.
-    const raster = await rasterizeFallbacks(doc, screenshot, assets.manifest);
+    const raster = await rasterizeFallbacks(doc, shot, assets.manifest);
     if (raster.count) console.log('[raster]', runId, JSON.stringify(raster.kinds));
     const tAssets = Date.now() - t1;
 
-    if (screenshot) await storage.put(`${runId}/reference.png`, screenshot, 'image/png');
-    const docJson = JSON.stringify(doc);
-    const docUrl = await storage.put(`${runId}/document.json`, Buffer.from(docJson), 'application/json');
+    // Self-contained response, written out in pieces rather than built as one
+    // giant string: a 12MB import is real and buffering it doubles peak memory
+    // for no benefit. Measured on this deployment, streaming is also ~2.5x
+    // faster at size, and nothing here is ever persisted.
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
 
-    const body = {
+    const head = {
       runId,
-      assets,
       rasterized: raster,
+      assetsFailed: assets.failed,
       timings: { captureMs: tCapture, assetsMs: tAssets, totalMs: Date.now() - started }
     };
-    // A serialised page runs to megabytes and Vercel caps a response at 4.5MB,
-    // so hosted captures hand back a URL and the plugin pulls the document from
-    // storage directly. Locally there is no cap and no second hop worth paying.
-    if (docUrl) body.docUrl = docUrl;
-    else body.doc = doc;
-    res.json(body);
+    res.write('{');
+    for (const [k, v] of Object.entries(head)) res.write(JSON.stringify(k) + ':' + JSON.stringify(v) + ',');
+
+    // The reference screenshot is only for the fidelity check, so it travels
+    // only when asked for and is never written anywhere.
+    if (wantReference && shot) {
+      res.write('"reference":' + JSON.stringify(shot.toString('base64')) + ',');
+    }
+
+    res.write('"assets":[');
+    for (let i = 0; i < assets.manifest.length; i++) {
+      if (i) res.write(',');
+      res.write(JSON.stringify(assets.manifest[i]));
+    }
+    res.write('],');
+
+    res.write('"doc":' + JSON.stringify(doc));
+    res.write('}');
+    res.end();
+    return;
   } catch (err) {
     const message = String(err && err.message ? err.message : err);
     console.error('[capture]', message);
+    // Once the body has started there is no status left to set, and trying
+    // anyway leaves the client hanging until its own timeout. Close instead.
+    if (res.headersSent) { try { res.end(); } catch (e) {} return; }
     res.status(500).json({
       error: message.includes('net::ERR_NAME_NOT_RESOLVED')
         ? 'That domain could not be reached. Check the URL.'
@@ -241,36 +253,25 @@ app.get('/asset/:id', (req, res) => {
   res.send(entry.bytes);
 });
 
-/** GET /run/:runId/reference.png → the browser screenshot for that run */
-app.get('/run/:runId/reference.png', async (req, res) => {
-  const bytes = await storage.get(`${req.params.runId}/reference.png`);
-  if (!bytes) return res.status(404).end();
-  res.setHeader('Content-Type', 'image/png');
-  res.send(bytes);
-});
-
 /**
- * POST /diff/:runId  (body: raw PNG exported from the built Figma frame)
- * → { score, worstRegions, ... }
+ * POST /diff  { reference: <base64 png>, candidate: <base64 png> }
+ * Stateless on purpose: the reference came back with the capture and is held
+ * by the client, so nothing has to be stored between the two calls.
  */
-app.post('/diff/:runId', express.raw({ type: '*/*', limit: '64mb' }), async (req, res) => {
-  const runId = req.params.runId;
-  const reference = await storage.get(`${runId}/reference.png`);
-  if (!reference) {
-    return res.status(404).json({ error: 'No reference screenshot for that run.' });
-  }
-  if (!req.body || !req.body.length) {
-    return res.status(400).json({ error: 'No PNG received.' });
+app.post('/diff', express.json({ limit: '96mb' }), async (req, res) => {
+  const { reference, candidate } = req.body || {};
+  if (!reference || !candidate) {
+    return res.status(400).json({ error: 'Both reference and candidate images are required.' });
   }
   try {
-    // compare() writes its heatmap beside the run; hosted, /tmp is the only
-    // writable place and it is per-invocation, which is fine — the score comes
-    // back in the response and the PNG is a local debugging aid.
-    const runDir = storage.localPath(runId) || require('os').tmpdir();
-    const result = await compare(reference, req.body, runDir);
-    await storage.put(`${runId}/diff.json`, Buffer.from(JSON.stringify(result, null, 2)), 'application/json');
-    console.log(`[diff] ${runId} score=${(result.score * 100).toFixed(1)}%`);
-    res.json({ ...result, runDir });
+    const refBuf = Buffer.from(reference, 'base64');
+    const candBuf = Buffer.from(candidate, 'base64');
+    // compare() writes its heatmap beside a run when there is a writable disk;
+    // hosted there is not one, and the score in the response is the point.
+    const outDir = storage.localPath('diff-' + Date.now());
+    const result = await compare(refBuf, candBuf, outDir);
+    console.log(`[diff] score=${(result.score * 100).toFixed(1)}%`);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
   }

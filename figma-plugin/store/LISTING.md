@@ -28,12 +28,14 @@ Paste a URL and get the page back as real Figma layers — not a screenshot.
 
 ### No setup
 
-Open it, paste a URL, press Import. There is no account, no API key and nothing
-to install. Rendering happens on a shared capture service that the plugin
-registers itself with on first run.
+Open it, paste a URL, press Import. No account, no API key, nothing to install.
 
-Fair use is 60 captures per day. If you need more, or you would rather captured
-pages stayed on your own infrastructure, you can point the plugin at your own
+Rendering happens on a shared capture service that the plugin registers itself
+with on first run. **Nothing you capture is stored** — the page comes back in a
+single response and the service keeps no copy of it.
+
+The shared service runs on free infrastructure, so it has a capacity. If it is
+ever reached the plugin says so plainly, and you can point it at your own
 capture service under Advanced — it is open source and deploys in one click.
 
 Source and self-hosting: https://github.com/olaamide123/web-to-figma
@@ -65,9 +67,9 @@ Import / Developer tools
 
 ## Notes for reviewers  <- paste this into the review-notes field
 
-No credentials or setup are needed. The plugin registers itself anonymously
-with our capture service the first time it runs, so it works immediately on a
-clean install.
+No credentials, no account and no setup. The plugin registers itself
+anonymously with our capture service the first time it runs, so a clean
+install works immediately.
 
 To test:
 1. Open the plugin.
@@ -75,10 +77,15 @@ To test:
    https://getbootstrap.com/docs/5.3/getting-started/introduction/
 3. Leave Desktop ticked and press "Import to Figma".
 
-You should get the page back as editable Figma layers in roughly 20-40 seconds.
+The page comes back as editable Figma layers in roughly 15-25 seconds.
 
-On privacy: the page being captured is fetched by our service and the result is
-stored there for 7 days, then deleted automatically by a scheduled job. No
-personal data is collected and the plugin has no login. The "Advanced" section
-lets anyone run the capture service themselves instead; the source is linked
+Data handling: the URL you enter is sent to our capture service, which loads
+that public page in a headless browser and returns the result in one response.
+**Nothing is stored** — no database, no file storage, no logs of page content.
+The plugin keeps only an anonymous install token in figma.clientStorage so the
+service can tell repeat requests apart; it identifies no person and carries no
+personal data. No analytics, no tracking, no third parties.
+
+Anyone who prefers not to use the shared service can run the capture service
+themselves; the "Advanced" section takes its URL, and the source is linked
 above.

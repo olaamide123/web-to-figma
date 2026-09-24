@@ -303,8 +303,11 @@ async function capture(opts) {
         const width = await page
           .evaluate(() => Math.max(document.documentElement.scrollWidth, window.innerWidth))
           .catch(() => opts.width);
+        // fullPage matters: on its own, clip is measured against the viewport,
+        // so this quietly returned a 900px-tall reference for any page past
+        // the cap and the fidelity score compared it against the whole import.
         shot = await page
-          .screenshot({ type: 'png', scale: 'css', clip: { x: 0, y: 0, width, height: MAX_SHOT_PX } })
+          .screenshot({ type: 'png', scale: 'css', fullPage: true, clip: { x: 0, y: 0, width, height: MAX_SHOT_PX } })
           .catch(() => null);
         // doc.warnings directly: the navigation warning was folded in further up,
         // before this pass ran.

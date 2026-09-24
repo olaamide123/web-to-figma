@@ -35,6 +35,25 @@ are deleted from your own storage after 7 days.
 
 Setup instructions: https://github.com/olaamide123/web-to-figma
 
+## Images — which file goes where
+
+| Figma field | File | Size |
+|---|---|---|
+| Plugin icon | `icon.png` | 128 x 128 |
+| Thumbnail | `thumbnail.png` | 1920 x 1080 |
+| Carousel 1 | `carousel-01.png` | 1920 x 1080 |
+| Carousel 2 | `carousel-02.png` | 1920 x 1080 |
+| Carousel 3 | `carousel-03.png` | 1920 x 1080 |
+| Carousel 4 | `carousel-04.png` | 1920 x 1080 |
+| Carousel 5 | `carousel-05.png` | 1920 x 1080 |
+
+Every screenshot in these is a real capture of
+`https://flock-site-beta.vercel.app/` made by this plugin, and every figure
+quoted on them comes from that import: 1,310 layers, 602 text, 123 images,
+37 vectors, 346 frames on Auto Layout. The layer trees are the actual
+serialised node names. Nothing is mocked up, so if the plugin's output
+changes, regenerate rather than edit.
+
 ## Tags
 website, import, html, css, web, screenshot, url, developer, handoff, prototype
 
